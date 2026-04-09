@@ -53,11 +53,21 @@ def _get_language_client():
         #
         from azure.ai.textanalytics import TextAnalyticsClient
         from azure.core.credentials import AzureKeyCredential
+        
+        endpoint = os.environ.get("AZURE_AI_LANGUAGE_ENDPOINT")
+        key = os.environ.get("AZURE_AI_LANGUAGE_KEY")
+        
+        if not endpoint or not key:
+            raise ValueError(
+                "Missing required environment variables: "
+                "AZURE_AI_LANGUAGE_ENDPOINT and/or AZURE_AI_LANGUAGE_KEY. "
+                "For local development, add them to .env file. "
+                "For GitHub Actions, add them as repository secrets."
+            )
+        
         _language_client = TextAnalyticsClient(
-            endpoint=os.environ["AZURE_AI_LANGUAGE_ENDPOINT"],
-            credential=AzureKeyCredential(
-                os.environ["AZURE_AI_LANGUAGE_KEY"]
-            ),
+            endpoint=endpoint,
+            credential=AzureKeyCredential(key),
         )
     return _language_client
 
@@ -75,10 +85,17 @@ def _get_translator_client():
         #
         from azure.ai.translation.text import TextTranslationClient
         from azure.core.credentials import AzureKeyCredential
+        
+        key = os.environ.get("AZURE_TRANSLATOR_KEY")
+        if not key:
+            raise ValueError(
+                "Missing required environment variable: AZURE_TRANSLATOR_KEY. "
+                "For local development, add it to .env file. "
+                "For GitHub Actions, add it as a repository secret."
+            )
+        
         _translator_client = TextTranslationClient(
-            credential=AzureKeyCredential(
-                os.environ["AZURE_TRANSLATOR_KEY"]
-            ),
+            credential=AzureKeyCredential(key),
             region=os.environ.get("AZURE_TRANSLATOR_REGION", "eastus"),
         )
     return _translator_client
@@ -100,11 +117,21 @@ def _get_clu_client():
             ConversationAnalysisClient,
         )
         from azure.core.credentials import AzureKeyCredential
+        
+        endpoint = os.environ.get("AZURE_AI_LANGUAGE_ENDPOINT")
+        key = os.environ.get("AZURE_AI_LANGUAGE_KEY")
+        
+        if not endpoint or not key:
+            raise ValueError(
+                "Missing required environment variables: "
+                "AZURE_AI_LANGUAGE_ENDPOINT and/or AZURE_AI_LANGUAGE_KEY. "
+                "For local development, add them to .env file. "
+                "For GitHub Actions, add them as repository secrets."
+            )
+        
         _clu_client = ConversationAnalysisClient(
-            endpoint=os.environ["AZURE_AI_LANGUAGE_ENDPOINT"],
-            credential=AzureKeyCredential(
-                os.environ["AZURE_AI_LANGUAGE_KEY"]
-            ),
+            endpoint=endpoint,
+            credential=AzureKeyCredential(key),
         )
     return _clu_client
 
@@ -197,6 +224,20 @@ def detect_and_redact_pii(text: str) -> dict:
         dict with keys: original_text, redacted_text, entities (list of dicts
         with text, category, confidence_score)
     """
+    # Handle empty text case
+    if not text or not text.strip():
+        return {
+            "original_text": text,
+            "redacted_text": text,
+            "entities": [],
+        }
+    
+    # Azure AI Language has a 5,120 character limit per document
+    # Truncate if necessary to avoid API errors
+    MAX_LENGTH = 5120
+    if len(text) > MAX_LENGTH:
+        text = text[:MAX_LENGTH]
+    
     # Step 1.1 - Get the Language client using _get_language_client()
     from azure.ai.textanalytics import PiiEntityCategory
     client = _get_language_client()
@@ -212,6 +253,7 @@ def detect_and_redact_pii(text: str) -> dict:
     #   Each entity has: .text, .category, .confidence_score
     #   Example: {"text": "John Smith", "category": "Person",
     #             "confidence_score": 0.98}
+    #   Filter out low-confidence entities (< 0.6) to avoid false positives
     entities = [
         {
             "text": entity.text,
@@ -219,6 +261,7 @@ def detect_and_redact_pii(text: str) -> dict:
             "confidence_score": round(entity.confidence_score, 2),
         }
         for entity in result[0].entities
+        if entity.confidence_score >= 0.6
     ]
     # Step 1.5 - Return dict with original_text, redacted_text, entities
     return {
@@ -241,6 +284,20 @@ def analyze_sentiment_and_phrases(text: str) -> dict:
         dict with keys: sentiment (str), confidence_scores (dict),
         key_phrases (list of str)
     """
+    # Handle empty text case
+    if not text or not text.strip():
+        return {
+            "sentiment": "neutral",
+            "confidence_scores": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
+            "key_phrases": [],
+        }
+    
+    # Azure AI Language has a 5,120 character limit per document
+    # Truncate if necessary to avoid API errors
+    MAX_LENGTH = 5120
+    if len(text) > MAX_LENGTH:
+        text = text[:MAX_LENGTH]
+    
     # Step 2.1 - Get the Language client using _get_language_client()
     client = _get_language_client()
     # Step 2.2 - Call client.analyze_sentiment([text])
@@ -279,6 +336,22 @@ def detect_and_translate(text: str) -> dict:
         dict with keys: detected_language, confidence, original_text,
         translated_text (English), was_translated (bool)
     """
+    # Handle empty text case
+    if not text or not text.strip():
+        return {
+            "detected_language": "en",
+            "confidence": 1.0,
+            "original_text": text,
+            "translated_text": text,
+            "was_translated": False,
+        }
+    
+    # Azure AI Language has a 5,120 character limit per document
+    # Truncate if necessary to avoid API errors
+    MAX_LENGTH = 5120
+    if len(text) > MAX_LENGTH:
+        text = text[:MAX_LENGTH]
+    
     # Step 3.1 - Get the Language client using _get_language_client()
     client = _get_language_client()
     # Step 3.2 - Call client.detect_language([text])
@@ -333,6 +406,20 @@ def recognize_intent(text: str) -> dict:
         dict with keys: top_intent, confidence, entities (list of dicts
         with entity, category, text)
     """
+    # Handle empty text case
+    if not text or not text.strip():
+        return {
+            "top_intent": "ask-question",
+            "confidence": 0.0,
+            "entities": [],
+        }
+    
+    # Azure AI Language has a 5,120 character limit per document
+    # Truncate if necessary to avoid API errors
+    MAX_LENGTH = 5120
+    if len(text) > MAX_LENGTH:
+        text = text[:MAX_LENGTH]
+    
     # Check if CLU is configured; fall back to keyword matching if not
     clu_project = os.environ.get("CLU_PROJECT_NAME", "")
     clu_deployment = os.environ.get("CLU_DEPLOYMENT_NAME", "")
