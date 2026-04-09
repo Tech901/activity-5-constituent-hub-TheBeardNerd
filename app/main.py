@@ -203,7 +203,7 @@ def detect_and_redact_pii(text: str) -> dict:
     # Step 1.2 - Call client.recognize_pii_entities([text])
     #   The SDK accepts a list of documents; pass [text] for a single doc.
     #   The response is a list of RecognizePiiEntitiesResult objects.
-    result = client.recognize_pii_entities([text], categories_filter=[PiiEntityCategory.US_SOCIAL_SECURITY_NUMBER, PiiEntityCategory.PHONE_NUMBER])
+    result = client.recognize_pii_entities([text])
     # Step 1.3 - Extract result.redacted_text for the sanitized version
     #   The SDK automatically replaces PII with category placeholders like
     #   "***" — use this directly instead of building your own redaction.
