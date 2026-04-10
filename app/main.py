@@ -53,10 +53,10 @@ def _get_language_client():
         #
         from azure.ai.textanalytics import TextAnalyticsClient
         from azure.core.credentials import AzureKeyCredential
-        
+
         endpoint = os.environ.get("AZURE_AI_LANGUAGE_ENDPOINT")
         key = os.environ.get("AZURE_AI_LANGUAGE_KEY")
-        
+
         if not endpoint or not key:
             raise ValueError(
                 "Missing required environment variables: "
@@ -64,7 +64,7 @@ def _get_language_client():
                 "For local development, add them to .env file. "
                 "For GitHub Actions, add them as repository secrets."
             )
-        
+
         _language_client = TextAnalyticsClient(
             endpoint=endpoint,
             credential=AzureKeyCredential(key),
@@ -85,7 +85,7 @@ def _get_translator_client():
         #
         from azure.ai.translation.text import TextTranslationClient
         from azure.core.credentials import AzureKeyCredential
-        
+
         key = os.environ.get("AZURE_TRANSLATOR_KEY")
         if not key:
             raise ValueError(
@@ -93,7 +93,7 @@ def _get_translator_client():
                 "For local development, add it to .env file. "
                 "For GitHub Actions, add it as a repository secret."
             )
-        
+
         _translator_client = TextTranslationClient(
             credential=AzureKeyCredential(key),
             region=os.environ.get("AZURE_TRANSLATOR_REGION", "eastus"),
@@ -117,10 +117,10 @@ def _get_clu_client():
             ConversationAnalysisClient,
         )
         from azure.core.credentials import AzureKeyCredential
-        
+
         endpoint = os.environ.get("AZURE_AI_LANGUAGE_ENDPOINT")
         key = os.environ.get("AZURE_AI_LANGUAGE_KEY")
-        
+
         if not endpoint or not key:
             raise ValueError(
                 "Missing required environment variables: "
@@ -128,7 +128,7 @@ def _get_clu_client():
                 "For local development, add them to .env file. "
                 "For GitHub Actions, add them as repository secrets."
             )
-        
+
         _clu_client = ConversationAnalysisClient(
             endpoint=endpoint,
             credential=AzureKeyCredential(key),
@@ -231,20 +231,20 @@ def detect_and_redact_pii(text: str) -> dict:
             "redacted_text": text,
             "entities": [],
         }
-    
+
     # Azure AI Language has a 5,120 character limit per document
     # Truncate if necessary to avoid API errors
     MAX_LENGTH = 5120
     if len(text) > MAX_LENGTH:
         text = text[:MAX_LENGTH]
-    
+
     # Step 1.1 - Get the Language client using _get_language_client()
     from azure.ai.textanalytics import PiiEntityCategory
     client = _get_language_client()
     # Step 1.2 - Call client.recognize_pii_entities([text])
     #   The SDK accepts a list of documents; pass [text] for a single doc.
     #   The response is a list of RecognizePiiEntitiesResult objects.
-    result = client.recognize_pii_entities([text])
+    result = client.recognize_pii_entities([text], language="en", categories_filter=[PiiEntityCategory.ALL])
     # Step 1.3 - Extract result.redacted_text for the sanitized version
     #   The SDK automatically replaces PII with category placeholders like
     #   "***" — use this directly instead of building your own redaction.
@@ -291,19 +291,20 @@ def analyze_sentiment_and_phrases(text: str) -> dict:
             "confidence_scores": {"positive": 0.0, "negative": 0.0, "neutral": 1.0},
             "key_phrases": [],
         }
-    
+
     # Azure AI Language has a 5,120 character limit per document
     # Truncate if necessary to avoid API errors
     MAX_LENGTH = 5120
     if len(text) > MAX_LENGTH:
         text = text[:MAX_LENGTH]
-    
+
     # Step 2.1 - Get the Language client using _get_language_client()
     client = _get_language_client()
     # Step 2.2 - Call client.analyze_sentiment([text])
     #   Response contains .sentiment ("positive"/"negative"/"neutral"/"mixed")
     #   and .confidence_scores with .positive, .negative, .neutral floats.
-    sentiment_result = client.analyze_sentiment([text], show_opinion_mining=True)[0]
+    sentiment_result = client.analyze_sentiment(
+        [text], show_opinion_mining=True)[0]
     # Step 2.3 - Call client.extract_key_phrases([text])
     #   Response contains .key_phrases — a list of strings like
     #   ["broken streetlight", "Beale Street"].
@@ -326,6 +327,8 @@ def analyze_sentiment_and_phrases(text: str) -> dict:
 # ---------------------------------------------------------------------------
 # Step 3 - Language Detection and Translation
 # ---------------------------------------------------------------------------
+
+
 def detect_and_translate(text: str) -> dict:
     """Detect the language of text and translate to English if needed.
 
@@ -345,13 +348,13 @@ def detect_and_translate(text: str) -> dict:
             "translated_text": text,
             "was_translated": False,
         }
-    
+
     # Azure AI Language has a 5,120 character limit per document
     # Truncate if necessary to avoid API errors
     MAX_LENGTH = 5120
     if len(text) > MAX_LENGTH:
         text = text[:MAX_LENGTH]
-    
+
     # Step 3.1 - Get the Language client using _get_language_client()
     client = _get_language_client()
     # Step 3.2 - Call client.detect_language([text])
@@ -370,7 +373,8 @@ def detect_and_translate(text: str) -> dict:
     #   NOTE: body is a list of strings (one string per document to translate).
     #   Response is a list; first item has .translations[0].text for the
     #   English translation.
-        translation_result = translator.translate(body=[text], to_language=["en", "es", "fr"])[0]
+        translation_result = translator.translate(
+            body=[text], to_language=["en", "es", "fr"])[0]
         translated_text = translation_result.translations[0].text
         was_translated = True
     else:
@@ -413,13 +417,13 @@ def recognize_intent(text: str) -> dict:
             "confidence": 0.0,
             "entities": [],
         }
-    
+
     # Azure AI Language has a 5,120 character limit per document
     # Truncate if necessary to avoid API errors
     MAX_LENGTH = 5120
     if len(text) > MAX_LENGTH:
         text = text[:MAX_LENGTH]
-    
+
     # Check if CLU is configured; fall back to keyword matching if not
     clu_project = os.environ.get("CLU_PROJECT_NAME", "")
     clu_deployment = os.environ.get("CLU_DEPLOYMENT_NAME", "")
@@ -460,7 +464,8 @@ def recognize_intent(text: str) -> dict:
         # Step 4.5 - Extract confidence and entities, return dict
         #   Return dict with top_intent (mapped), confidence, entities
         intents = prediction.get("intents", [])
-        confidence = round(intents[0]["confidenceScore"], 2) if intents else 0.0
+        confidence = round(
+            intents[0]["confidenceScore"], 2) if intents else 0.0
         entities = [
             {
                 "text": entity["text"],
@@ -500,7 +505,8 @@ def main():
             pii_result = detect_and_redact_pii(text)
             pii_results.append(pii_result)
             pii_entities_found += len(pii_result.get("entities", []))
-            print(f"  ✓ Complaint {i + 1}: {len(pii_result.get('entities', []))} PII entities redacted")
+            print(
+                f"  ✓ Complaint {i + 1}: {len(pii_result.get('entities', []))} PII entities redacted")
         except NotImplementedError:
             print(f"  ⏭ Complaint {i + 1}: Step 1 not implemented yet")
             break
@@ -522,7 +528,8 @@ def main():
         try:
             sentiment = analyze_sentiment_and_phrases(text)
             sentiment_results.append(sentiment)
-            print(f"  ✓ Complaint {i + 1}: {sentiment.get('sentiment', '?')} sentiment")
+            print(
+                f"  ✓ Complaint {i + 1}: {sentiment.get('sentiment', '?')} sentiment")
         except NotImplementedError:
             print(f"  ⏭ Complaint {i + 1}: Step 2 not implemented yet")
             break
@@ -572,7 +579,8 @@ def main():
         try:
             intent = recognize_intent(text)
             intent_results.append(intent)
-            print(f"  ✓ Complaint {i + 1}: {intent.get('top_intent', '?')} ({intent.get('confidence', 0):.0%})")
+            print(
+                f"  ✓ Complaint {i + 1}: {intent.get('top_intent', '?')} ({intent.get('confidence', 0):.0%})")
         except NotImplementedError:
             print(f"  ⏭ Complaint {i + 1}: Step 4 not implemented yet")
             break
